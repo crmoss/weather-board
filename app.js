@@ -11,7 +11,40 @@ const SAMPLE_TASKS = [
 ];
 
 let tasks = [];
-let weatherByRegion = {};   // 03 단원에서 지역별 날씨를 넣음
+let weatherByRegion = {};
+
+async function loadWeather() {
+  const box = document.getElementById('weatherBox');
+  const testWind = new URLSearchParams(window.location.search).get('test') === 'wind';
+  box.textContent = '오늘 날씨를 불러오는 중…' + (testWind ? ' (강풍 테스트 모드)' : '');
+  const results = await Promise.all(Object.keys(REGIONS).map(async (region) => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await fetch(buildWeatherUrl(region), { signal: controller.signal });
+      if (!response.ok) throw new Error('날씨 요청 실패: ' + response.status);
+      const w = parseWeather(await response.json());
+      weatherByRegion[region] = testWind ? { ...w, windMax: 12 } : w;
+      renderTasks();
+      return { region, ok: true };
+    } catch (error) {
+      return { region, ok: false };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }));
+  const failed = results.filter(result => !result.ok).map(result => result.region);
+  box.textContent = (failed.length
+    ? '날씨를 가져오지 못한 지역: ' + failed.join(', ') + '. 새로고침하여 다시 시도하세요.'
+    : '오늘 날씨 수신 완료 (한국 시간 기준).') +
+    ' 표시 순서: 최고 기온(℃) · 최대 풍속(m/s) · 최대 강수확률(%).' +
+    (testWind ? ' 강풍 테스트 모드: 수신한 날씨의 풍속을 12m/s로 적용합니다.' : '');
+  const source = document.createElement('a');
+  source.href = 'https://open-meteo.com/';
+  source.textContent = '날씨 제공: Open-Meteo';
+  box.appendChild(document.createTextNode(' '));
+  box.appendChild(source);
+}
 
 function loadTasks() {
   const saved = JSON.parse(localStorage.getItem('wx_added') || '[]');
@@ -72,3 +105,4 @@ todayDate.dateTime = todayText;
 document.getElementById('taskForm').addEventListener('submit', addTask);
 loadTasks();
 renderTasks();
+loadWeather();
