@@ -123,13 +123,33 @@ const todayDate = document.getElementById('todayDate');
 todayDate.textContent = todayText;
 todayDate.dateTime = todayText;
 
+function downloadMarkdown() {
+  const rows = Array.from(document.querySelectorAll('#taskList tr'), tr =>
+    Array.from(tr.cells, cell => cell.textContent));
+  const now = new Date();
+  const date = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0')].join('-');
+  const testWind = new URLSearchParams(window.location.search).get('test') === 'wind';
+  const markdown = createJudgmentMarkdown(rows, date, testWind);
+  const url = URL.createObjectURL(new Blob([markdown], { type: 'text/markdown;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = '현장일정_판단_' + date + '.md';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 async function initialize() {
   const button = document.querySelector('#taskForm button');
   button.disabled = true;
   await loadTasks();
   button.disabled = false;
+  document.getElementById('downloadMarkdown').disabled = false;
   loadWeather();
 }
 
 document.getElementById('taskForm').addEventListener('submit', addTask);
+document.getElementById('downloadMarkdown').addEventListener('click', downloadMarkdown);
 initialize();

@@ -49,4 +49,29 @@ function judge(kind, w) {
   return { level: 'ok', text: '진행' };
 }
 
-if (typeof module !== 'undefined') module.exports = { REGIONS, buildWeatherUrl, parseWeather, RULES, judge };
+// 현재 표의 셀 값을 받아 Markdown으로 변환한다. DOM에는 접근하지 않는다.
+function createJudgmentMarkdown(rows, date, testWind = false) {
+  function escapeCell(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/\\/g, '&#92;')
+      .replace(/\|/g, '&#124;')
+      .replace(/`/g, '&#96;')
+      .replace(/\*/g, '&#42;')
+      .replace(/_/g, '&#95;')
+      .replace(/\r\n|\r|\n/g, '<br>');
+  }
+  const lines = ['# 현장 일정 판단 — ' + date, ''];
+  if (testWind) lines.push('강풍 테스트 모드: 수신한 날씨의 풍속을 12m/s로 적용한 결과입니다.', '');
+  lines.push('| 일정 | 지역 | 구분 | 담당 | 날씨 | 판단 |',
+    '| --- | --- | --- | --- | --- | --- |');
+  for (const row of rows) lines.push('| ' + row.map(escapeCell).join(' | ') + ' |');
+  lines.push('', '판단 기준(교육용 가상 기준): 실내는 영향 없음; 날씨 미수신은 날씨 확인 전; 고소·풍속 ' +
+    RULES.wind + 'm/s 이상 → 중지 검토, 최고 기온 ' + RULES.heat + '℃ 이상 → 폭염 휴식, 강수확률 ' +
+    RULES.rain + '% 이상 → 우천 주의 순으로 하나만 적용; 그 외 진행.');
+  return lines.join('\n') + '\n';
+}
+
+if (typeof module !== 'undefined') module.exports = { REGIONS, buildWeatherUrl, parseWeather, RULES, judge, createJudgmentMarkdown };
