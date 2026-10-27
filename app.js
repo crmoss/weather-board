@@ -1,7 +1,7 @@
 // app.js – 화면 동작 (목록 그리기, 일정 추가)
 
-let baseTasks = [];
-let addedTasks = [];
+let taskDb = null;
+let savingTask = false;
 let tasks = [];
 let weatherByRegion = {};
 
@@ -47,24 +47,19 @@ function isTask(t) {
 async function loadTasks() {
   const msg = document.getElementById('msgBox');
   try {
-    const response = await fetch('data/tasks.json');
-    if (!response.ok) throw new Error('일정 요청 실패');
-    const data = await response.json();
+    const { data, error } = await taskDb.from('wx_tasks')
+      .select('id,title,region,kind,owner').order('id', { ascending: true });
+    if (error) throw error;
     if (!Array.isArray(data) || !data.every(isTask)) throw new Error('일정 형식 오류');
-    baseTasks = data;
+    tasks = data;
+    msg.textContent = '';
+    return true;
   } catch (error) {
-    msg.textContent = '배포주소로열어주세요';
+    msg.textContent = '일정을 불러오지 못했습니다. Supabase 연결 정보와 setup.sql 실행 여부를 확인한 뒤 새로고침해주세요.';
+    return false;
+  } finally {
+    renderTasks();
   }
-  // 기본 JSON을 먼저 읽은 뒤, 화면에서 추가한 일정만 합친다.
-  try {
-    const saved = JSON.parse(localStorage.getItem('wx_added') || '[]');
-    if (!Array.isArray(saved) || !saved.every(isTask)) throw new Error('저장 형식 오류');
-    addedTasks = saved;
-  } catch (error) {
-    msg.textContent += (msg.textContent ? ' · ' : '') + '추가 일정을 불러오지 못했습니다.';
-  }
-  tasks = baseTasks.concat(addedTasks);
-  renderTasks();
 }
 
 function weatherText(w) {
@@ -91,26 +86,34 @@ function renderTasks() {
   }
 }
 
-function addTask(e) {
+async function addTask(e) {
   e.preventDefault();
+  if (!taskDb || savingTask) return;
   const t = {
     title: document.getElementById('titleInput').value.trim(),
     region: document.getElementById('regionInput').value,
     kind: document.getElementById('kindInput').value,
     owner: document.getElementById('ownerInput').value.trim(),
   };
-  if (!t.title || !t.owner) return;
-  const nextAdded = addedTasks.concat(t);
+  if (!isTask(t)) return;
+  const button = document.querySelector('#taskForm button');
+  savingTask = true;
+  button.disabled = true;
+  document.getElementById('msgBox').textContent = '저장 중…';
   try {
-    localStorage.setItem('wx_added', JSON.stringify(nextAdded));
+    const { data, error } = await taskDb.from('wx_tasks').insert(t)
+      .select('id,title,region,kind,owner').single();
+    if (error || !isTask(data)) throw error || new Error('저장 응답 오류');
+    tasks.push(data);
+    e.target.reset();
+    renderTasks();
+    document.getElementById('msgBox').textContent = '일정을 저장했습니다.';
   } catch (error) {
-    document.getElementById('msgBox').textContent = '일정을 저장하지 못했습니다. 브라우저 저장소 설정을 확인해주세요.';
-    return;
+    document.getElementById('msgBox').textContent = '저장 완료를 확인하지 못했습니다. 입력은 유지됩니다. 새로고침해 등록 여부를 확인한 뒤 다시 시도해주세요.';
+  } finally {
+    savingTask = false;
+    button.disabled = false;
   }
-  addedTasks = nextAdded;
-  tasks = baseTasks.concat(addedTasks);
-  e.target.reset();
-  renderTasks();
 }
 
 const today = new Date();
@@ -144,10 +147,23 @@ function downloadMarkdown() {
 async function initialize() {
   const button = document.querySelector('#taskForm button');
   button.disabled = true;
-  await loadTasks();
-  button.disabled = false;
-  document.getElementById('downloadMarkdown').disabled = false;
   loadWeather();
+  try {
+    if (typeof SUPABASE_URL !== 'string' || !SUPABASE_URL ||
+        typeof SUPABASE_PUBLIC_KEY !== 'string' || !SUPABASE_PUBLIC_KEY) {
+      throw new Error('config.js에 Supabase 주소와 공개용 키를 입력해주세요.');
+    }
+    if (!window.supabase) throw new Error('supabase-js를 불러오지 못했습니다. 네트워크 연결을 확인해주세요.');
+    taskDb = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLIC_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    });
+    if (await loadTasks()) {
+      button.disabled = false;
+      document.getElementById('downloadMarkdown').disabled = false;
+    }
+  } catch (error) {
+    document.getElementById('msgBox').textContent = error.message;
+  }
 }
 
 document.getElementById('taskForm').addEventListener('submit', addTask);
